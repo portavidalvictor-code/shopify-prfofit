@@ -1,8 +1,14 @@
-import { useMemo } from 'react'
-import { customers, dailyStats, feeRate, recentOrders } from './data'
+import { createContext, useContext, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { getSavedKey, loadDashboard, saveKey, type LoadResult } from './api'
+import { demoData, type Customer, type DailyStat, type DashboardData, type RecentOrder } from './data'
 
-const euro = (n: number) =>
-  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 })
+const moneyFormatter = (currency: string) => (n: number) =>
+  n.toLocaleString('es-ES', { style: 'currency', currency, maximumFractionDigits: 2 })
+const CurrencyContext = createContext(moneyFormatter('EUR'))
+const useEuro = () => useContext(CurrencyContext)
+
+const feePercent = (d: DailyStat) =>
+  d.revenue > 0 ? `${((d.shopifyFee / d.revenue) * 100).toFixed(1)}%` : '—'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', icon: '◧', active: true },
@@ -12,7 +18,7 @@ const NAV_ITEMS = [
   { label: 'Ajustes', icon: '⚙', active: false },
 ]
 
-function Sidebar() {
+function Sidebar({ live }: { live: boolean }) {
   return (
     <aside className="hidden w-[240px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--panel)] px-4 py-6 md:flex">
       <div className="mb-8 flex items-center gap-3 px-2">
@@ -47,10 +53,12 @@ function Sidebar() {
           V
         </div>
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-medium text-white">Tienda conectada</p>
+          <p className="truncate text-[13px] font-medium text-white">
+            {live ? 'Tienda conectada' : 'Sin tienda conectada'}
+          </p>
           <p className="flex items-center gap-1.5 text-[11px] text-[var(--text-dim)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--green)]" />
-            En vivo
+            <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-[var(--green)]' : 'bg-amber-400'}`} />
+            {live ? 'En vivo' : 'Datos de demo'}
           </p>
         </div>
       </div>
@@ -84,12 +92,12 @@ function KpiCard({
   )
 }
 
-function RevenueChart() {
+function RevenueChart({ dailyStats }: { dailyStats: DailyStat[] }) {
   const width = 640
   const height = 200
   const padding = 24
 
-  const max = Math.max(...dailyStats.map((d) => d.revenue)) * 1.15
+  const max = Math.max(1, ...dailyStats.map((d) => d.revenue)) * 1.15
 
   const points = dailyStats.map((d, i) => {
     const x = padding + (i / (dailyStats.length - 1)) * (width - padding * 2)
@@ -151,11 +159,11 @@ function RevenueChart() {
   )
 }
 
-function BreakdownCard() {
-  const today = dailyStats[dailyStats.length - 1]
+function BreakdownCard({ today }: { today: DailyStat }) {
+  const euro = useEuro()
   const rows = [
     { label: 'Facturación bruta', value: today.revenue, color: 'text-white' },
-    { label: `Comisión Shopify (${(feeRate * 100).toFixed(1)}%)`, value: -today.shopifyFee, color: 'text-red-400' },
+    { label: `Comisiones (${feePercent(today)})`, value: -today.shopifyFee, color: 'text-red-400' },
     { label: 'Coste de producto', value: -today.productCost, color: 'text-red-400' },
   ]
 
@@ -183,7 +191,8 @@ function BreakdownCard() {
   )
 }
 
-function CustomersTable() {
+function CustomersTable({ customers }: { customers: Customer[] }) {
+  const euro = useEuro()
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex items-center justify-between">
@@ -205,6 +214,7 @@ function CustomersTable() {
                 {c.name
                   .split(' ')
                   .map((w) => w[0])
+                  .slice(0, 2)
                   .join('')}
               </div>
               <div>
@@ -225,12 +235,16 @@ function CustomersTable() {
   )
 }
 
-function RecentOrdersTable() {
+function RecentOrdersTable({ recentOrders }: { recentOrders: RecentOrder[] }) {
+  const euro = useEuro()
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
       <p className="mb-4 text-[11px] font-medium tracking-wide text-[var(--text-dim)] uppercase">
-        Últimos pedidos (en vivo)
+        Últimos pedidos
       </p>
+      {recentOrders.length === 0 && (
+        <p className="py-6 text-center text-[13px] text-[var(--text-dim)]">Sin pedidos en los últimos 7 días</p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-[13px]">
           <thead>
@@ -265,8 +279,48 @@ function RecentOrdersTable() {
   )
 }
 
-function App() {
+function PasswordScreen({ wrong, onSubmit }: { wrong: boolean; onSubmit: (key: string) => void }) {
+  const [value, setValue] = useState('')
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    onSubmit(value)
+  }
+  return (
+    <div className="flex min-h-screen items-center justify-center p-6">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-[340px] rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6"
+      >
+        <p className="text-[18px] font-bold text-white">Shopify Profit</p>
+        <p className="mt-1 mb-5 text-[13px] text-[var(--text-dim)]">Introduce la contraseña del panel</p>
+        <input
+          type="password"
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] text-white outline-none focus:border-[var(--green)]"
+        />
+        {wrong && <p className="mt-2 text-[12px] text-red-400">Contraseña incorrecta</p>}
+        <button
+          type="submit"
+          className="mt-4 w-full rounded-lg bg-[var(--green)] py-2.5 text-[14px] font-semibold text-black"
+        >
+          Entrar
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function Dashboard({ data, live }: { data: DashboardData; live: boolean }) {
+  const { dailyStats, customers, recentOrders } = data
+  const euro = useMemo(() => moneyFormatter(data.currency), [data.currency])
   const today = dailyStats[dailyStats.length - 1]
+  const yesterday = dailyStats[dailyStats.length - 2]
+  const vsYesterday =
+    yesterday && yesterday.revenue > 0
+      ? `${today.revenue >= yesterday.revenue ? '+' : ''}${Math.round(((today.revenue - yesterday.revenue) / yesterday.revenue) * 100)}% vs ayer`
+      : 'Sin ventas ayer'
 
   const weekTotals = useMemo(
     () =>
@@ -277,57 +331,103 @@ function App() {
         }),
         { revenue: 0, netProfit: 0 },
       ),
-    [],
+    [dailyStats],
   )
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
+    <CurrencyContext.Provider value={euro}>
+      <div className="flex min-h-screen">
+        <Sidebar live={live} />
 
-      <div className="flex-1">
-        <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
-          <div>
-            <p className="text-[20px] font-bold text-white">Dashboard</p>
-            <p className="text-[13px] text-[var(--text-dim)]">
-              Datos conectados directamente a tu tienda Shopify
-            </p>
-          </div>
-          <div className="flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--text-dim)]">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--green)]" />
-            Sincronizado en vivo
-          </div>
-        </header>
+        <div className="flex-1">
+          <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
+            <div>
+              <p className="text-[20px] font-bold text-white">Dashboard</p>
+              <p className="text-[13px] text-[var(--text-dim)]">
+                {live
+                  ? 'Datos conectados directamente a tu tienda Shopify'
+                  : 'Datos de demostración — conecta una tienda en Vercel'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--text-dim)]">
+              <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-[var(--green)]' : 'bg-amber-400'}`} />
+              {live ? 'Sincronizado en vivo' : 'Demo'}
+            </div>
+          </header>
 
-        <main className="flex flex-col gap-5 p-6">
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <KpiCard label="Facturación hoy" value={euro(today.revenue)} sub="+18% vs ayer" />
-            <KpiCard
-              label="Comisión Shopify"
-              value={`-${euro(today.shopifyFee)}`}
-              sub={`${(feeRate * 100).toFixed(1)}% sobre ventas`}
-            />
-            <KpiCard label="Coste de producto" value={`-${euro(today.productCost)}`} sub="Coste neto hoy" />
-            <KpiCard label="Profit neto hoy" value={euro(today.netProfit)} sub="Facturación − comisión − coste" accent />
-          </div>
+          <main className="flex flex-col gap-5 p-6">
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <KpiCard label="Facturación hoy" value={euro(today.revenue)} sub={vsYesterday} />
+              <KpiCard
+                label="Comisiones"
+                value={`-${euro(today.shopifyFee)}`}
+                sub={`${feePercent(today)} sobre ventas`}
+              />
+              <KpiCard label="Coste de producto" value={`-${euro(today.productCost)}`} sub="Coste neto hoy" />
+              <KpiCard label="Profit neto hoy" value={euro(today.netProfit)} sub="Facturación − comisión − coste" accent />
+            </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
-            <RevenueChart />
-            <BreakdownCard />
-          </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
+              <RevenueChart dailyStats={dailyStats} />
+              <BreakdownCard today={today} />
+            </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <CustomersTable />
-            <RecentOrdersTable />
-          </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <CustomersTable customers={customers} />
+              <RecentOrdersTable recentOrders={recentOrders} />
+            </div>
 
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 text-[12px] text-[var(--text-dim)]">
-            Semana: {euro(weekTotals.revenue)} facturados · {euro(weekTotals.netProfit)} de profit
-            neto acumulado
-          </div>
-        </main>
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 text-[12px] text-[var(--text-dim)]">
+              Semana: {euro(weekTotals.revenue)} facturados · {euro(weekTotals.netProfit)} de profit
+              neto acumulado
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </CurrencyContext.Provider>
   )
+}
+
+function App() {
+  const [result, setResult] = useState<LoadResult | null>(null)
+
+  const fetchData = (key: string) =>
+    loadDashboard(key).then((r) => {
+      if (r.status === 'live') saveKey(key)
+      if (r.status === 'locked') saveKey('')
+      setResult(r)
+    })
+
+  const load = (key: string) => {
+    setResult(null)
+    fetchData(key)
+  }
+
+  useEffect(() => {
+    fetchData(getSavedKey())
+  }, [])
+
+  if (!result) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-[13px] text-[var(--text-dim)]">
+        Cargando datos de la tienda…
+      </div>
+    )
+  }
+  if (result.status === 'locked') return <PasswordScreen wrong={result.wrongPassword} onSubmit={load} />
+  if (result.status === 'error') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-[16px] font-bold text-white">No se pudo leer la tienda</p>
+        <p className="max-w-[520px] text-[12px] break-words text-[var(--text-dim)]">{result.message}</p>
+        <button onClick={() => load(getSavedKey())} className="text-[13px] text-[var(--green)] hover:underline">
+          Reintentar
+        </button>
+      </div>
+    )
+  }
+
+  return <Dashboard data={result.status === 'live' ? result.data : demoData} live={result.status === 'live'} />
 }
 
 export default App

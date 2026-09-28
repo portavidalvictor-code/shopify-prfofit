@@ -1,6 +1,5 @@
-// Shape mirrors what a real pipeline would store in Supabase after
-// processing Shopify's `orders/paid` webhook through n8n:
-// revenue, shopify_fee (2.5%), product_cost (from variant cost-per-item), net_profit.
+// Shapes returned by /api/dashboard (see api/dashboard.ts).
+// The constants below are demo data, shown until a real store is connected.
 
 export interface DailyStat {
   date: string
@@ -55,4 +54,11 @@ export const recentOrders: RecentOrder[] = [
   { id: '#3018', customer: 'Cliente nuevo', revenue: 45.0, shopifyFee: 1.13, productCost: 18, netProfit: 25.87, time: '08:10' },
 ]
 
-export const feeRate = 0.025
+export interface DashboardData {
+  currency: string
+  dailyStats: DailyStat[]
+  customers: Customer[]
+  recentOrders: RecentOrder[]
+}
+
+export const demoData: DashboardData = { currency: 'EUR', dailyStats, customers, recentOrders }
