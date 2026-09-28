@@ -1,14 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { getSavedKey, loadDashboard, saveKey, type LoadResult } from './api'
-import { demoData, type Customer, type DailyStat, type DashboardData, type RecentOrder } from './data'
+import { demoData, type Customer, type DailyStat, type DashboardData, type RecentOrder, type Totals } from './data'
 
 const moneyFormatter = (currency: string) => (n: number) =>
   n.toLocaleString('es-ES', { style: 'currency', currency, maximumFractionDigits: 2 })
 const CurrencyContext = createContext(moneyFormatter('EUR'))
 const useEuro = () => useContext(CurrencyContext)
 
-const feePercent = (d: DailyStat) =>
-  d.revenue > 0 ? `${((d.shopifyFee / d.revenue) * 100).toFixed(1)}%` : '—'
+const percent = (rate: number) => `${(rate * 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })}%`
 
 const NAV_ITEMS = [
   { label: 'Dashboard', icon: '◧', active: true },
@@ -92,15 +91,18 @@ function KpiCard({
   )
 }
 
-function RevenueChart({ dailyStats }: { dailyStats: DailyStat[] }) {
+function RevenueChart({ dailyStats, monthLabel }: { dailyStats: DailyStat[]; monthLabel: string }) {
   const width = 640
   const height = 200
   const padding = 24
 
   const max = Math.max(1, ...dailyStats.map((d) => d.revenue)) * 1.15
+  const xAt = (i: number) =>
+    dailyStats.length === 1 ? width / 2 : padding + (i / (dailyStats.length - 1)) * (width - padding * 2)
+  const labelEvery = dailyStats.length > 16 ? 5 : dailyStats.length > 8 ? 2 : 1
 
   const points = dailyStats.map((d, i) => {
-    const x = padding + (i / (dailyStats.length - 1)) * (width - padding * 2)
+    const x = xAt(i)
     const y = height - padding - (d.revenue / max) * (height - padding * 2)
     return { x, y, ...d }
   })
@@ -110,7 +112,7 @@ function RevenueChart({ dailyStats }: { dailyStats: DailyStat[] }) {
 
   const profitMax = max
   const profitPoints = dailyStats.map((d, i) => {
-    const x = padding + (i / (dailyStats.length - 1)) * (width - padding * 2)
+    const x = xAt(i)
     const y = height - padding - (d.netProfit / profitMax) * (height - padding * 2)
     return { x, y }
   })
@@ -123,7 +125,7 @@ function RevenueChart({ dailyStats }: { dailyStats: DailyStat[] }) {
           <p className="text-[11px] font-medium tracking-wide text-[var(--text-dim)] uppercase">
             Facturación vs Profit neto
           </p>
-          <p className="mt-1 text-[20px] font-bold text-white">Últimos 7 días</p>
+          <p className="mt-1 text-[20px] font-bold text-white">{monthLabel}, día a día</p>
         </div>
         <div className="flex items-center gap-4 text-[12px] text-[var(--text-dim)]">
           <span className="flex items-center gap-1.5">
@@ -150,28 +152,34 @@ function RevenueChart({ dailyStats }: { dailyStats: DailyStat[] }) {
         ))}
       </svg>
 
-      <div className="mt-1 flex justify-between text-[11px] text-[var(--text-dim)]">
-        {dailyStats.map((d) => (
-          <span key={d.date}>{d.date}</span>
-        ))}
+      <div className="relative mt-1 h-4 text-[11px] text-[var(--text-dim)]">
+        {dailyStats.map((d, i) =>
+          i % labelEvery === 0 || i === dailyStats.length - 1 ? (
+            <span
+              key={d.date}
+              className="absolute -translate-x-1/2"
+              style={{ left: `${(xAt(i) / width) * 100}%` }}
+            >
+              {i === dailyStats.length - 1 ? 'Hoy' : d.date}
+            </span>
+          ) : null,
+        )}
       </div>
     </div>
   )
 }
 
-function BreakdownCard({ today }: { today: DailyStat }) {
+function BreakdownCard({ title, totals, feeRate }: { title: string; totals: Totals; feeRate: number }) {
   const euro = useEuro()
   const rows = [
-    { label: 'Facturación bruta', value: today.revenue, color: 'text-white' },
-    { label: `Comisiones (${feePercent(today)})`, value: -today.shopifyFee, color: 'text-red-400' },
-    { label: 'Coste de producto', value: -today.productCost, color: 'text-red-400' },
+    { label: `Facturación (${totals.orders} pedidos)`, value: totals.revenue, color: 'text-white' },
+    { label: `Comisión Shopify (${percent(feeRate)})`, value: -totals.shopifyFee, color: 'text-red-400' },
+    { label: 'Coste de producto', value: -totals.productCost, color: 'text-red-400' },
   ]
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
-      <p className="mb-4 text-[11px] font-medium tracking-wide text-[var(--text-dim)] uppercase">
-        Desglose de hoy
-      </p>
+      <p className="mb-4 text-[11px] font-medium tracking-wide text-[var(--text-dim)] uppercase">{title}</p>
       <div className="flex flex-col gap-3">
         {rows.map((row) => (
           <div key={row.label} className="flex items-center justify-between text-[13px]">
@@ -184,27 +192,34 @@ function BreakdownCard({ today }: { today: DailyStat }) {
         ))}
         <div className="mt-1 flex items-center justify-between border-t border-[var(--border)] pt-3 text-[15px] font-bold">
           <span className="text-white">Profit neto</span>
-          <span className="text-[var(--green)]">{euro(today.netProfit)}</span>
+          <span className="text-[var(--green)]">{euro(totals.netProfit)}</span>
         </div>
       </div>
     </div>
   )
 }
 
-function CustomersTable({ customers }: { customers: Customer[] }) {
+function CustomersTable({ customers, monthLabel }: { customers: Customer[]; monthLabel: string }) {
   const euro = useEuro()
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? customers : customers.slice(0, 8)
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex items-center justify-between">
         <p className="text-[11px] font-medium tracking-wide text-[var(--text-dim)] uppercase">
-          Clientes ({customers.length})
+          Clientes que han comprado en {monthLabel.toLowerCase()} ({customers.length})
         </p>
-        <a href="#" className="text-[12px] text-[var(--green)] hover:underline">
-          Ver todos
-        </a>
+        {customers.length > 8 && (
+          <button onClick={() => setShowAll(!showAll)} className="text-[12px] text-[var(--green)] hover:underline">
+            {showAll ? 'Ver menos' : 'Ver todos'}
+          </button>
+        )}
       </div>
+      {customers.length === 0 && (
+        <p className="py-6 text-center text-[13px] text-[var(--text-dim)]">Aún no hay compras este mes</p>
+      )}
       <div className="flex flex-col">
-        {customers.map((c) => (
+        {visible.map((c) => (
           <div
             key={c.id}
             className="flex items-center justify-between border-b border-[var(--border)] py-3 last:border-0"
@@ -223,9 +238,12 @@ function CustomersTable({ customers }: { customers: Customer[] }) {
               </div>
             </div>
             <div className="text-right">
-              <p className="text-[13px] font-semibold text-white">{euro(c.totalSpent)}</p>
+              <p className="text-[13px] font-semibold text-white">{euro(c.monthSpent)}</p>
               <p className="text-[11px] text-[var(--text-dim)]">
-                {c.orders} pedidos · {c.lastOrder}
+                {c.monthOrders} {c.monthOrders === 1 ? 'pedido' : 'pedidos'} · {c.lastOrder}
+              </p>
+              <p className="text-[11px] text-[var(--text-dim)]">
+                Total histórico: {euro(c.totalSpent)} ({c.totalOrders})
               </p>
             </div>
           </div>
@@ -243,7 +261,7 @@ function RecentOrdersTable({ recentOrders }: { recentOrders: RecentOrder[] }) {
         Últimos pedidos
       </p>
       {recentOrders.length === 0 && (
-        <p className="py-6 text-center text-[13px] text-[var(--text-dim)]">Sin pedidos en los últimos 7 días</p>
+        <p className="py-6 text-center text-[13px] text-[var(--text-dim)]">Aún no hay pedidos este mes</p>
       )}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-[13px]">
@@ -313,26 +331,14 @@ function PasswordScreen({ wrong, onSubmit }: { wrong: boolean; onSubmit: (key: s
 }
 
 function Dashboard({ data, live }: { data: DashboardData; live: boolean }) {
-  const { dailyStats, customers, recentOrders } = data
+  const { dailyStats, customers, recentOrders, today, month, monthLabel, feeRate } = data
   const euro = useMemo(() => moneyFormatter(data.currency), [data.currency])
-  const today = dailyStats[dailyStats.length - 1]
   const yesterday = dailyStats[dailyStats.length - 2]
   const vsYesterday =
     yesterday && yesterday.revenue > 0
       ? `${today.revenue >= yesterday.revenue ? '+' : ''}${Math.round(((today.revenue - yesterday.revenue) / yesterday.revenue) * 100)}% vs ayer`
-      : 'Sin ventas ayer'
-
-  const weekTotals = useMemo(
-    () =>
-      dailyStats.reduce(
-        (acc, d) => ({
-          revenue: acc.revenue + d.revenue,
-          netProfit: acc.netProfit + d.netProfit,
-        }),
-        { revenue: 0, netProfit: 0 },
-      ),
-    [dailyStats],
-  )
+      : `${today.orders} ${today.orders === 1 ? 'pedido' : 'pedidos'} hoy`
+  const updatedAt = new Date(data.updatedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 
   return (
     <CurrencyContext.Provider value={euro}>
@@ -351,35 +357,52 @@ function Dashboard({ data, live }: { data: DashboardData; live: boolean }) {
             </div>
             <div className="flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--text-dim)]">
               <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-[var(--green)]' : 'bg-amber-400'}`} />
-              {live ? 'Sincronizado en vivo' : 'Demo'}
+              {live ? `Actualizado ${updatedAt}` : 'Demo'}
             </div>
           </header>
 
           <main className="flex flex-col gap-5 p-6">
+            {data.truncated && (
+              <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-[12px] text-amber-300">
+                Este mes tiene más de 3.000 pedidos: los totales del mes solo incluyen los 3.000 más recientes.
+              </div>
+            )}
+
+            <p className="-mb-2 text-[12px] font-semibold tracking-wide text-[var(--text-dim)] uppercase">Hoy</p>
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               <KpiCard label="Facturación hoy" value={euro(today.revenue)} sub={vsYesterday} />
               <KpiCard
-                label="Comisiones"
+                label="Comisión Shopify hoy"
                 value={`-${euro(today.shopifyFee)}`}
-                sub={`${feePercent(today)} sobre ventas`}
+                sub={`${percent(feeRate)} sobre ventas`}
               />
-              <KpiCard label="Coste de producto" value={`-${euro(today.productCost)}`} sub="Coste neto hoy" />
+              <KpiCard label="Coste de producto hoy" value={`-${euro(today.productCost)}`} sub="Según coste por artículo" />
               <KpiCard label="Profit neto hoy" value={euro(today.netProfit)} sub="Facturación − comisión − coste" accent />
             </div>
 
+            <p className="-mb-2 text-[12px] font-semibold tracking-wide text-[var(--text-dim)] uppercase">{monthLabel}</p>
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <KpiCard label="Facturación del mes" value={euro(month.revenue)} sub={`${month.orders} pedidos`} />
+              <KpiCard
+                label="Comisión Shopify mes"
+                value={`-${euro(month.shopifyFee)}`}
+                sub={`${percent(feeRate)} sobre ventas`}
+              />
+              <KpiCard label="Coste de producto mes" value={`-${euro(month.productCost)}`} sub="Acumulado del mes" />
+              <KpiCard label="Profit neto del mes" value={euro(month.netProfit)} sub="Acumulado del mes" accent />
+            </div>
+
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
-              <RevenueChart dailyStats={dailyStats} />
-              <BreakdownCard today={today} />
+              <RevenueChart dailyStats={dailyStats} monthLabel={monthLabel} />
+              <div className="flex flex-col gap-4">
+                <BreakdownCard title="Desglose de hoy" totals={today} feeRate={feeRate} />
+                <BreakdownCard title={`Desglose de ${monthLabel.toLowerCase()}`} totals={month} feeRate={feeRate} />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <CustomersTable customers={customers} />
+              <CustomersTable customers={customers} monthLabel={monthLabel} />
               <RecentOrdersTable recentOrders={recentOrders} />
-            </div>
-
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 text-[12px] text-[var(--text-dim)]">
-              Semana: {euro(weekTotals.revenue)} facturados · {euro(weekTotals.netProfit)} de profit
-              neto acumulado
             </div>
           </main>
         </div>
@@ -406,6 +429,18 @@ function App() {
   useEffect(() => {
     fetchData(getSavedKey())
   }, [])
+
+  // Refresh in the background so new orders appear without reloading the page.
+  const isLive = result?.status === 'live'
+  useEffect(() => {
+    if (!isLive) return
+    const id = setInterval(() => {
+      loadDashboard(getSavedKey()).then((r) => {
+        if (r.status === 'live') setResult(r)
+      })
+    }, 120_000)
+    return () => clearInterval(id)
+  }, [isLive])
 
   if (!result) {
     return (
