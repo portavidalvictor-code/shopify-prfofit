@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { getSavedKey, loadDashboard, saveKey, type LoadResult } from './api'
+import { Calculator } from './Calculator'
 import { demoData, type Customer, type DailyStat, type DashboardData, type RecentOrder, type Totals } from './data'
 
 const moneyFormatter = (currency: string) => (n: number) =>
@@ -9,15 +10,30 @@ const useEuro = () => useContext(CurrencyContext)
 
 const percent = (rate: number) => `${(rate * 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })}%`
 
-const NAV_ITEMS = [
-  { label: 'Dashboard', icon: '◧', active: true },
-  { label: 'Pedidos', icon: '🧾', active: false },
-  { label: 'Clientes', icon: '👥', active: false },
-  { label: 'Productos', icon: '📦', active: false },
-  { label: 'Ajustes', icon: '⚙', active: false },
+type View = 'dashboard' | 'calculadora'
+
+// Keep Shopify's embedded-app query params (host, shop…) when switching views
+const viewHref = (view: View) => {
+  const params = new URLSearchParams(window.location.search)
+  if (view === 'dashboard') params.delete('view')
+  else params.set('view', view)
+  const query = params.toString()
+  return `${window.location.pathname}${query ? `?${query}` : ''}`
+}
+
+const currentView = (): View =>
+  new URLSearchParams(window.location.search).get('view') === 'calculadora' ? 'calculadora' : 'dashboard'
+
+const NAV_ITEMS: { label: string; icon: string; view?: View }[] = [
+  { label: 'Dashboard', icon: '◧', view: 'dashboard' },
+  { label: 'Calculadora', icon: '🧮', view: 'calculadora' },
+  { label: 'Pedidos', icon: '🧾' },
+  { label: 'Clientes', icon: '👥' },
+  { label: 'Productos', icon: '📦' },
+  { label: 'Ajustes', icon: '⚙' },
 ]
 
-function Sidebar({ live }: { live: boolean }) {
+function Sidebar({ live, view }: { live: boolean; view: View }) {
   return (
     <aside className="hidden w-[240px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--panel)] px-4 py-6 md:flex">
       <div className="mb-8 flex items-center gap-3 px-2">
@@ -34,9 +50,9 @@ function Sidebar({ live }: { live: boolean }) {
         {NAV_ITEMS.map((item) => (
           <a
             key={item.label}
-            href="#"
+            href={item.view ? viewHref(item.view) : '#'}
             className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[14px] transition-colors ${
-              item.active
+              item.view === view
                 ? 'bg-[var(--green)]/10 text-[var(--green)]'
                 : 'text-[var(--text-dim)] hover:bg-white/5 hover:text-white'
             }`}
@@ -343,7 +359,7 @@ function Dashboard({ data, live }: { data: DashboardData; live: boolean }) {
   return (
     <CurrencyContext.Provider value={euro}>
       <div className="flex min-h-screen">
-        <Sidebar live={live} />
+        <Sidebar live={live} view="dashboard" />
 
         <div className="flex-1">
           <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
@@ -411,7 +427,29 @@ function Dashboard({ data, live }: { data: DashboardData; live: boolean }) {
   )
 }
 
+// The calculator needs no store data, so it opens without the panel password
+function CalculatorPage() {
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar live={false} view="calculadora" />
+      <div className="min-w-0 flex-1">
+        <header className="border-b border-[var(--border)] px-6 py-5">
+          <p className="text-[20px] font-bold text-white">Calculadora de márgenes</p>
+          <p className="text-[13px] text-[var(--text-dim)]">
+            Comprueba si un producto deja beneficio antes de subirlo a la tienda
+          </p>
+        </header>
+        <Calculator />
+      </div>
+    </div>
+  )
+}
+
 function App() {
+  return currentView() === 'calculadora' ? <CalculatorPage /> : <DashboardApp />
+}
+
+function DashboardApp() {
   const [result, setResult] = useState<LoadResult | null>(null)
 
   const fetchData = (key: string) =>

@@ -2,6 +2,13 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <meta name="shopify-api-key" content="%SHOPIFY_API_KEY%" />
+    <script>
+      // App Bridge only inside the Shopify admin: it adds the app's sub-menu to the admin sidebar
+      if (window.top !== window.self && document.querySelector('meta[name="shopify-api-key"]').content) {
+        document.write('<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"><\/script>')
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -13,6 +20,10 @@
     <title>Shopify Profit · Nexus</title>
   </head>
   <body>
+    <ui-nav-menu style="display: none">
+      <a href="/" rel="home">Dashboard</a>
+      <a href="/?view=calculadora">Calculadora</a>
+    </ui-nav-menu>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
