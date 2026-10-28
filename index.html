@@ -3,12 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="shopify-api-key" content="%SHOPIFY_API_KEY%" />
-    <script>
-      // App Bridge only inside the Shopify admin: it adds the app's sub-menu to the admin sidebar
-      if (window.top !== window.self && document.querySelector('meta[name="shopify-api-key"]').content) {
-        document.write('<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"><\/script>')
-      }
-    </script>
+    <!-- App Bridge must be the first script; inside the Shopify admin it adds the app's sub-menu -->
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
