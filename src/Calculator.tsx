@@ -16,6 +16,7 @@ type Settings = {
   vatRate: number
   freeShippingFrom: number
   customerShipping: number // what the customer pays below the free-shipping threshold
+  adSpend: number // estimated ad cost to get one sale
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -24,6 +25,7 @@ const DEFAULT_SETTINGS: Settings = {
   vatRate: 0.21,
   freeShippingFrom: 40,
   customerShipping: 4.95,
+  adSpend: 10,
 }
 
 // Candidates already reviewed; supplier shipping is an estimate until confirmed
@@ -57,6 +59,7 @@ function calculate(row: Row, s: Settings) {
     vat,
     fee,
     profit,
+    afterAds: profit - s.adSpend,
     margin: gross > 0 ? profit / (gross - vat) : 0,
     multiplier: totalCost > 0 ? row.price / totalCost : 0,
   }
@@ -105,13 +108,14 @@ export function Calculator() {
     <main className="flex flex-col gap-5 p-6">
       <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
         <p className="text-[11px] font-medium tracking-wide text-[var(--text-dim)] uppercase">Ajustes de la tienda</p>
-        <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-5">
+        <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-6">
           {[
             { label: 'Comisión Shopify', value: settings.feeRate * 100, suffix: '%', set: (n: number) => updateSettings({ feeRate: n / 100 }) },
             { label: 'Comisión fija por pedido', value: settings.feeFixed, suffix: '€', set: (n: number) => updateSettings({ feeFixed: n }) },
             { label: 'IVA', value: settings.vatRate * 100, suffix: '%', set: (n: number) => updateSettings({ vatRate: n / 100 }) },
             { label: 'Envío gratis desde', value: settings.freeShippingFrom, suffix: '€', set: (n: number) => updateSettings({ freeShippingFrom: n }) },
             { label: 'Envío que paga el cliente', value: settings.customerShipping, suffix: '€', set: (n: number) => updateSettings({ customerShipping: n }) },
+            { label: 'Publicidad por venta', value: settings.adSpend, suffix: '€', set: (n: number) => updateSettings({ adSpend: n }) },
           ].map((f) => (
             <div key={f.label}>
               <p className="mb-1 text-[12px] text-[var(--text-dim)]">{f.label}</p>
@@ -122,7 +126,7 @@ export function Calculator() {
       </section>
 
       <section className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--panel)]">
-        <table className="w-full min-w-[980px] text-[13px]">
+        <table className="w-full min-w-[1080px] text-[13px]">
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-[11px] tracking-wide text-[var(--text-dim)] uppercase">
               <th className="px-4 py-3 font-medium">Producto</th>
@@ -132,6 +136,7 @@ export function Calculator() {
               <th className="px-2 py-3 text-right font-medium">IVA</th>
               <th className="px-2 py-3 text-right font-medium">Comisión</th>
               <th className="px-2 py-3 text-right font-medium">Beneficio</th>
+              <th className="px-2 py-3 text-right font-medium">Tras anuncios</th>
               <th className="px-2 py-3 text-right font-medium">Margen</th>
               <th className="px-2 py-3 text-right font-medium">x Coste</th>
               <th className="px-4 py-3 font-medium">Veredicto</th>
@@ -166,6 +171,7 @@ export function Calculator() {
                   <td className={`px-2 py-2 text-right font-bold ${r.profit >= 0 ? 'text-[var(--green)]' : 'text-red-400'}`}>
                     {euro(r.profit)}
                   </td>
+                  <td className={`px-2 py-2 text-right ${r.afterAds >= 0 ? 'text-white' : 'text-red-400'}`}>{euro(r.afterAds)}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-dim)]">{Math.round(r.margin * 100)}%</td>
                   <td className="px-2 py-2 text-right text-[var(--text-dim)]">{r.multiplier.toFixed(1)}x</td>
                   <td className="px-4 py-2">
